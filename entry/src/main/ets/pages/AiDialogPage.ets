@@ -5,6 +5,10 @@ interface ChatBubble {
   text: string;
 }
 
+const TEST_API_URL = 'https://maas-api.cn-huabei-1.xf-yun.com/v2';
+const TEST_API_KEY = 'ae81d8d1b66a3d4520cd5ccf6efe429d:Y2Y5MTYxMTJkOTU3YTg2MjY4MmM5NGJh';
+const TEST_MODEL_ID = '684';
+
 const DEFAULT_AI_PROMPT = `
 你是鸿蒙平衡车控制助手，回答要简洁。
 当用户表达车辆控制意图时，请在回复末尾附加一个标准控制标签，标签必须使用英文大写方括号格式。
@@ -30,21 +34,22 @@ const DEFAULT_AI_PROMPT = `
 
 @Component
 export struct AiDialogPage {
-  @State apiUrl: string = 'https://maas-api.cn-huabei-1.xf-yun.com/v2';
-  @State apiKey: string = '';
-  @State modelId: string = '684';
+  @State apiUrl: string = TEST_API_URL;
+  @State apiKey: string = TEST_API_KEY;
+  @State modelId: string = TEST_MODEL_ID;
   @State systemPrompt: string = DEFAULT_AI_PROMPT;
   @State userInput: string = '';
   @State isLoading: boolean = false;
   @State assistantReply: string = '这里显示大模型返回内容。';
   @State directiveText: string = '未识别到控制指令';
-  @State rawResponse: string = '暂无原始响应';
   @State chatBubbles: ChatBubble[] = [
     {
       role: 'assistant',
-      text: '请输入问题或控制意图，例如："让车前进一点"、"打开车灯"。'
+      text: '你好，我是 AI 助手。你可以直接说“让车前进一点”或“打开车灯”。'
     }
   ];
+  @State showQuickActions: boolean = false;
+  @State showDebugInfo: boolean = false;
 
   private aiService: AiChatService = new AiChatService();
   private chatHistory: AiChatMessage[] = [];
@@ -61,15 +66,23 @@ export struct AiDialogPage {
     if (!directive) {
       return '未识别到控制指令';
     }
-    return `${directive.label}（${directive.code}，${directive.category}）`;
+    return `${directive.label}（${directive.code}）`;
+  }
+
+  private insertQuickPrompt(text: string): void {
+    this.userInput = text;
+    this.showQuickActions = false;
   }
 
   private async sendPrompt(): Promise<void> {
-    const apiKey = this.apiKey.trim();
     const prompt = this.userInput.trim();
+    if (!prompt) {
+      this.directiveText = '请输入对话内容';
+      return;
+    }
 
-    if (!apiKey || !prompt) {
-      this.directiveText = !apiKey ? '请先填写 API Key' : '请输入对话内容';
+    if (!this.apiKey.trim()) {
+      this.directiveText = '请先填写 API Key';
       return;
     }
 
@@ -82,7 +95,7 @@ export struct AiDialogPage {
     try {
       const result: AiChatResult = await this.aiService.requestChat({
         apiUrl: this.apiUrl,
-        apiKey: apiKey,
+        apiKey: this.apiKey,
         modelId: this.modelId,
         systemPrompt: this.systemPrompt,
         userInput: prompt,
@@ -90,7 +103,6 @@ export struct AiDialogPage {
       });
 
       this.assistantReply = result.assistantText;
-      this.rawResponse = result.rawResponse;
       this.directiveText = this.renderDirective(result.directive);
       this.appendBubble('assistant', result.assistantText);
       this.updateHistory('assistant', result.assistantText);
@@ -98,181 +110,177 @@ export struct AiDialogPage {
       const message = err instanceof Error ? err.message : `${err}`;
       this.assistantReply = `请求失败：${message}`;
       this.directiveText = '请求失败';
-      this.rawResponse = message;
       this.appendBubble('assistant', `请求失败：${message}`);
     } finally {
       this.isLoading = false;
     }
   }
 
+  private buildQuickActionButton(title: string, prompt: string) {
+    Button(title)
+      .height(34)
+      .fontSize(12)
+      .fontColor('#165DFF')
+      .backgroundColor('#E8F3FF')
+      .borderRadius(18)
+      .padding({ left: 12, right: 12 })
+      .onClick(() => {
+        this.insertQuickPrompt(prompt);
+      })
+  }
+
   build() {
-    Scroll() {
-      Column({ space: 16 }) {
-        Column({ space: 8 }) {
-          Text('AI 智能对话控制')
-            .fontSize(24)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#1D2129')
+    Column({ space: 12 }) {
+      Column({ space: 6 }) {
+        Text('AI 对话')
+          .fontSize(24)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#1D2129')
 
-          Text('通过 HTTP 接口调用讯飞 MaaS 模型，识别控制意图并输出标准指令标签。')
-            .fontSize(13)
-            .fontColor('#86909C')
-            .lineHeight(20)
+        Text('像普通聊天一样输入内容，系统会自动识别是否包含控制指令。')
+          .fontSize(13)
+          .fontColor('#86909C')
+          .lineHeight(20)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 16, right: 16, top: 16 })
+
+      Scroll() {
+        Column({ space: 10 }) {
+          ForEach(this.chatBubbles, (item: ChatBubble, index: number) => {
+            Row() {
+              if (item.role === 'assistant') {
+                Text('🤖')
+                  .fontSize(16)
+                  .width(28)
+                  .height(28)
+                  .textAlign(TextAlign.Center)
+                  .backgroundColor('#E6F7E8')
+                  .borderRadius(14)
+                  .margin({ right: 8 })
+
+                Text(item.text)
+                  .fontSize(14)
+                  .fontColor('#1D2129')
+                  .lineHeight(20)
+                  .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                  .backgroundColor('#FFFFFF')
+                  .borderRadius(16)
+                  .border({ width: 1, color: '#E5E6EB' })
+                  .maxLines(20)
+                  .constraintSize({ minWidth: 50, maxWidth: '75%' })
+              } else {
+                Row() {
+                  Text(item.text)
+                    .fontSize(14)
+                    .fontColor(Color.White)
+                    .lineHeight(20)
+                    .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                    .backgroundColor('#165DFF')
+                    .borderRadius(16)
+                    .maxLines(20)
+                    .constraintSize({ minWidth: 50, maxWidth: '75%' })
+
+                  Text('👤')
+                    .fontSize(16)
+                    .width(28)
+                    .height(28)
+                    .textAlign(TextAlign.Center)
+                    .backgroundColor('#DDE1E6')
+                    .borderRadius(14)
+                    .margin({ left: 8 })
+                }
+                .width('100%')
+                .justifyContent(FlexAlign.End)
+              }
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16 })
+          }, (item: ChatBubble, index: number) => `${item.role}-${index}`)
         }
-        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+        .padding({ top: 10, bottom: 10 })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .backgroundColor('#F2F2F7')
 
-        Column({ space: 12 }) {
-          Text('接口配置')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#1D2129')
-
-          TextInput({ text: this.apiUrl, placeholder: 'HTTP 接口地址' })
-            .height(44)
-            .fontSize(14)
-            .backgroundColor('#F7F8FA')
-            .borderRadius(12)
-            .onChange((value: string) => {
-              this.apiUrl = value;
-            })
-
-          TextInput({ text: this.apiKey, placeholder: 'API Key' })
-            .type(InputType.Password)
-            .height(44)
-            .fontSize(14)
-            .backgroundColor('#F7F8FA')
-            .borderRadius(12)
-            .onChange((value: string) => {
-              this.apiKey = value;
-            })
-
-          TextInput({ text: this.modelId, placeholder: '服务名称 / 模型编号' })
-            .height(44)
-            .fontSize(14)
-            .backgroundColor('#F7F8FA')
-            .borderRadius(12)
-            .onChange((value: string) => {
-              this.modelId = value;
-            })
+      if (this.showQuickActions) {
+        Column({ space: 10 }) {
+          Row({ space: 8 }) {
+            this.buildQuickActionButton('车控', '帮我控制车辆前进')
+            this.buildQuickActionButton('车灯', '打开车灯')
+            this.buildQuickActionButton('导航', '开始导航到目的地')
+            this.buildQuickActionButton('车辆管理', '查看车辆状态')
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.SpaceBetween)
         }
-        .padding(16)
-        .backgroundColor(Color.White)
-        .borderRadius(20)
+        .padding({ left: 16, right: 16, bottom: 8 })
+      }
 
-        Column({ space: 12 }) {
-          Text('系统提示词')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#1D2129')
-
-          TextInput({ text: this.systemPrompt, placeholder: '系统提示词' })
-            .height(120)
-            .fontSize(14)
-            .backgroundColor('#F7F8FA')
-            .borderRadius(12)
-            .onChange((value: string) => {
-              this.systemPrompt = value;
-            })
-        }
-        .padding(16)
-        .backgroundColor(Color.White)
-        .borderRadius(20)
-
-        Column({ space: 12 }) {
-          Text('对话输入')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#1D2129')
-
-          TextInput({ text: this.userInput, placeholder: '输入问题或控制需求' })
+      Column({ space: 10 }) {
+        Row({ space: 8 }) {
+          TextInput({ text: this.userInput, placeholder: '请输入您的问题...' })
             .height(44)
-            .fontSize(14)
-            .backgroundColor('#F7F8FA')
-            .borderRadius(12)
+            .layoutWeight(1)
+            .fontSize(15)
+            .backgroundColor('#E5E5EA')
+            .borderRadius(22)
+            .border({ width: 0 })
+            .padding({ left: 14, right: 14 })
             .onChange((value: string) => {
               this.userInput = value;
             })
 
-          Button(this.isLoading ? '发送中...' : '发送')
-            .width('100%')
+          Button(this.isLoading ? '...' : '发送')
+            .width(44)
             .height(44)
-            .fontSize(15)
-            .fontColor(Color.White)
-            .backgroundColor('#165DFF')
-            .borderRadius(12)
+            .backgroundColor(this.isLoading || !this.userInput.trim() ? '#C8C8CD' : '#165DFF')
+            .borderRadius(22)
+            .enabled(!this.isLoading && !!this.userInput.trim())
             .onClick(() => {
               void this.sendPrompt();
             })
-        }
-        .padding(16)
-        .backgroundColor(Color.White)
-        .borderRadius(20)
 
-        Column({ space: 12 }) {
-          Text('解析结果')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#1D2129')
-
-          Text(this.directiveText)
-            .fontSize(14)
-            .fontColor('#165DFF')
-            .fontWeight(FontWeight.Medium)
-
-          Text(this.assistantReply)
+          Button('更多')
+            .width(60)
+            .height(44)
             .fontSize(13)
-            .fontColor('#4E5969')
-            .lineHeight(20)
-
-          Text('原始响应')
-            .fontSize(12)
-            .fontColor('#86909C')
-
-          Text(this.rawResponse)
-            .fontSize(11)
-            .fontColor('#86909C')
-            .lineHeight(18)
+            .fontColor('#165DFF')
+            .backgroundColor('#E8F3FF')
+            .borderRadius(22)
+            .onClick(() => {
+              this.showQuickActions = !this.showQuickActions;
+            })
         }
-        .padding(16)
-        .backgroundColor(Color.White)
-        .borderRadius(20)
 
-        Column({ space: 12 }) {
-          Text('聊天记录')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('#1D2129')
+        if (this.showDebugInfo) {
+          Column({ space: 6 }) {
+            Text('调试信息')
+              .fontSize(12)
+              .fontColor('#86909C')
 
-          ForEach(this.chatBubbles, (item: ChatBubble, index: number) => {
-            Row() {
-              Column({ space: 6 }) {
-                Text(item.role === 'user' ? '我' : 'AI')
-                  .fontSize(12)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(item.role === 'user' ? '#165DFF' : '#67C23A')
+            Text(`指令识别：${this.directiveText}`)
+              .fontSize(12)
+              .fontColor('#4E5969')
 
-                Text(item.text)
-                  .fontSize(13)
-                  .fontColor('#1D2129')
-                  .lineHeight(20)
-              }
-              .padding(12)
-              .backgroundColor(item.role === 'user' ? '#E8F3FF' : '#F6FFED')
-              .borderRadius(14)
-              .width('100%')
-            }
-            .padding({ bottom: 8 })
-          }, (item: ChatBubble, index: number) => `${item.role}-${index}`)
+            Text(`回复：${this.assistantReply}`)
+              .fontSize(12)
+              .fontColor('#4E5969')
+              .lineHeight(18)
+          }
+          .padding({ left: 6, right: 6 })
         }
-        .padding(16)
-        .backgroundColor(Color.White)
-        .borderRadius(20)
       }
-      .padding(16)
-      .backgroundColor('#F2F3F5')
       .width('100%')
-      .alignItems(HorizontalAlign.Stretch)
+      .padding({ top: 10, bottom: 16, left: 16, right: 16 })
+      .backgroundColor(Color.White)
+      .shadow({ radius: 0 })
+      .borderRadius(0)
     }
-    .scrollBar(BarState.Off)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F2F2F7')
   }
 }
