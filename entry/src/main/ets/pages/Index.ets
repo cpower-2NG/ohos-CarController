@@ -1,5 +1,4 @@
-import { socket } from '@kit.NetworkKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { TcpClient } from '../models/TcpClient';
 
 type CarAction = 'forward' | 'backward' | 'left' | 'right' | 'stop';
 
@@ -19,11 +18,34 @@ struct VehicleControlPage {
   @State connectionColor: string = '#F56C6C';
   @State lastCommand: string = '暂无指令';
   @State lastCommandCode: string = '未发送';
+  @State lastServerMessage: string = '暂无回包';
   @State connectionTip: string = '输入平衡车服务端 IP 和端口，点击连接后即可发送控制指令。';
   @State speed: number = 35;
 
-  private tcpSocket: socket.TCPSocket | null = null;
+  private tcpClient: TcpClient = new TcpClient();
   private commandHistory: string[] = ['等待连接后发送指令'];
+
+  aboutToAppear(): void {
+    this.tcpClient.setListener({
+      onConnected: () => {
+        this.updateConnection(true, `已连接到 ${this.serverIp}:${this.serverPort}`);
+      },
+      onClosed: (reason: string) => {
+        this.updateConnection(false, reason);
+      },
+      onError: (message: string) => {
+        this.connectionTip = message;
+      },
+      onMessage: (message: string) => {
+        this.lastServerMessage = message;
+        this.commandHistory = [`${this.formatTime()}  ACK ${message}`, ...this.commandHistory].slice(0, 6);
+      }
+    });
+  }
+
+  aboutToDisappear(): void {
+    this.tcpClient.disconnect();
+  }
 
   private pushCommand(command: string, code?: string): void {
     this.lastCommand = command;
@@ -46,63 +68,69 @@ struct VehicleControlPage {
 
   private async connect(): Promise<void> {
     try {
-      if (this.tcpSocket) {
-        try {
-          this.tcpSocket.close();
-        } catch (closeErr) {
-          console.info('close old socket before reconnect failed');
-        }
+      const port = Number(this.serverPort);
+      if (Number.isNaN(port) || port <= 0 || port > 65535) {
+        this.updateConnection(false, '端口不合法，请输入 1-65535');
+        return;
       }
 
-      this.tcpSocket = socket.constructTCPSocketInstance();
-      const port = Number(this.serverPort);
-
-      await this.tcpSocket.connect({
-        address: {
-          address: this.serverIp,
-          port: Number.isNaN(port) ? 8080 : port,
-          family: 1
-        }
+      this.updateConnection(false, '连接中...');
+      await this.tcpClient.connectWithRetry(this.serverIp, port, {
+        retries: 2,
+        timeoutMs: 4000,
+        retryDelayMs: 800
       });
 
-      this.updateConnection(true, `已连接到 ${this.serverIp}:${this.serverPort}`);
       this.pushCommand(`连接成功 ${this.serverIp}:${this.serverPort}`);
-    } catch (err) {
-      const error = err as BusinessError;
-      this.updateConnection(false, `连接失败：${error.code ?? ''} ${error.message ?? ''}`.trim());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : `${err}`;
+      this.updateConnection(false, `连接失败：${message}`);
       this.pushCommand('连接失败');
     }
   }
 
   private disconnect(): void {
-    try {
-      this.tcpSocket?.close();
-    } catch (err) {
-      console.info(`socket close failed: ${JSON.stringify(err)}`);
-    }
-    this.tcpSocket = null;
+    this.tcpClient.disconnect();
     this.updateConnection(false, '已断开连接，可重新连接。');
     this.pushCommand('已断开连接');
   }
 
   private async sendAction(action: CarAction, label: string): Promise<void> {
     const code = CAR_COMMANDS[action];
-    if (!this.tcpSocket) {
+    if (!this.tcpClient.isConnected()) {
       this.updateConnection(false, '请先连接平衡车服务端。');
       this.pushCommand(`${label} 发送失败`, code);
       return;
     }
 
     try {
-      await this.tcpSocket.send({
-        data: `${code}\r\n`
-      });
+      await this.tcpClient.sendMessage(`${code}\r\n`);
       this.pushCommand(label, code);
-    } catch (err) {
-      const error = err as BusinessError;
-      this.updateConnection(false, `发送失败：${error.code ?? ''} ${error.message ?? ''}`.trim());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : `${err}`;
+      this.updateConnection(false, `发送失败：${message}`);
       this.pushCommand(`${label} 发送失败`, code);
     }
+  }
+
+  @Builder
+  directionButton(label: string, action: CarAction) {
+    Button(label)
+      .layoutWeight(1)
+      .height(52)
+      .fontSize(16)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(Color.White)
+      .backgroundColor('#165DFF')
+      .borderRadius(16)
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          void this.sendAction(action, label);
+        }
+        if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          void this.sendAction('stop', '停止');
+        }
+      })
   }
 
   build() {
@@ -114,7 +142,7 @@ struct VehicleControlPage {
             .fontWeight(FontWeight.Bold)
             .fontColor('#1D2129')
 
-          Text('先完成基础运动控制界面，后续可扩展车灯、座椅、AI与地图功能。')
+          Text('方向键按下发送方向指令，松开发送停止指令。')
             .fontSize(13)
             .fontColor('#86909C')
             .lineHeight(20)
@@ -212,10 +240,6 @@ struct VehicleControlPage {
             .fontWeight(FontWeight.Medium)
             .fontColor('#1D2129')
 
-          Text('点击按钮后会通过 TCP 发送平衡车协议指令。')
-            .fontSize(12)
-            .fontColor('#86909C')
-
           Column({ space: 12 }) {
             Button('前进 ↑')
               .width('44%')
@@ -225,34 +249,18 @@ struct VehicleControlPage {
               .fontColor(Color.White)
               .backgroundColor('#165DFF')
               .borderRadius(16)
-              .onClick(() => {
-                void this.sendAction('forward', '前进');
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  void this.sendAction('forward', '前进');
+                }
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  void this.sendAction('stop', '停止');
+                }
               })
 
             Row({ space: 12 }) {
-              Button('左转 ↰')
-                .layoutWeight(1)
-                .height(52)
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Color.White)
-                .backgroundColor('#165DFF')
-                .borderRadius(16)
-                .onClick(() => {
-                  void this.sendAction('left', '左转');
-                })
-
-              Button('右转 ↱')
-                .layoutWeight(1)
-                .height(52)
-                .fontSize(16)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Color.White)
-                .backgroundColor('#165DFF')
-                .borderRadius(16)
-                .onClick(() => {
-                  void this.sendAction('right', '右转');
-                })
+              this.directionButton('左转 ↰', 'left')
+              this.directionButton('右转 ↱', 'right')
             }
 
             Button('后退 ↓')
@@ -263,11 +271,16 @@ struct VehicleControlPage {
               .fontColor(Color.White)
               .backgroundColor('#165DFF')
               .borderRadius(16)
-              .onClick(() => {
-                void this.sendAction('backward', '后退');
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  void this.sendAction('backward', '后退');
+                }
+                if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  void this.sendAction('stop', '停止');
+                }
               })
 
-            Button('停止')
+            Button('急停')
               .width('44%')
               .height(50)
               .fontSize(15)
@@ -280,6 +293,21 @@ struct VehicleControlPage {
               })
           }
           .alignItems(HorizontalAlign.Center)
+        }
+        .padding(16)
+        .backgroundColor(Color.White)
+        .borderRadius(20)
+
+        Column({ space: 12 }) {
+          Text('服务端回包')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#1D2129')
+
+          Text(this.lastServerMessage)
+            .fontSize(14)
+            .fontColor('#165DFF')
+            .fontWeight(FontWeight.Medium)
         }
         .padding(16)
         .backgroundColor(Color.White)
