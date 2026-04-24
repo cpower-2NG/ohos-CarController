@@ -1,4 +1,6 @@
 import { AiChatMessage, AiChatResult, AiChatService, AiControlDirective } from '../models/AiChatService';
+import { SpeechToTextService } from '../models/SpeechToTextService';
+import { common } from '@kit.AbilityKit';
 
 interface ChatBubble {
   role: 'user' | 'assistant';
@@ -42,6 +44,8 @@ export struct AiDialogPage {
   @State isLoading: boolean = false;
   @State assistantReply: string = '这里显示大模型返回内容。';
   @State directiveText: string = '未识别到控制指令';
+  @State voiceStatusText: string = '长按麦克风说话';
+  @State isRecording: boolean = false;
   @State chatBubbles: ChatBubble[] = [
     {
       role: 'assistant',
@@ -52,7 +56,34 @@ export struct AiDialogPage {
   @State showDebugInfo: boolean = false;
 
   private aiService: AiChatService = new AiChatService();
+  private speechService: SpeechToTextService = new SpeechToTextService();
   private chatHistory: AiChatMessage[] = [];
+
+  aboutToAppear(): void {
+    const hostContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.speechService.setListener({
+      onText: (text: string) => {
+        this.userInput = text;
+        this.voiceStatusText = '识别完成，可直接发送';
+      },
+      onStateChange: (recording: boolean) => {
+        this.isRecording = recording;
+        this.voiceStatusText = recording ? '正在聆听，请继续说话' : '按住说话，松开发送识别';
+      },
+      onError: (message: string) => {
+        this.voiceStatusText = message;
+      }
+    });
+
+    void this.speechService.initialize(hostContext).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : `${err}`;
+      this.voiceStatusText = `语音初始化失败: ${message}`;
+    });
+  }
+
+  aboutToDisappear(): void {
+    this.speechService.shutdown();
+  }
 
   private appendBubble(role: 'user' | 'assistant', text: string): void {
     this.chatBubbles = [...this.chatBubbles, { role, text }];
@@ -220,7 +251,34 @@ export struct AiDialogPage {
       }
 
       Column({ space: 10 }) {
+        Text(this.voiceStatusText)
+          .fontSize(12)
+          .fontColor(this.isRecording ? '#F56C6C' : '#86909C')
+
         Row({ space: 8 }) {
+          Button(this.isRecording ? '松开发送' : '按住说话')
+            .width(92)
+            .height(44)
+            .fontSize(13)
+            .fontColor(this.isRecording ? '#FFFFFF' : '#165DFF')
+            .backgroundColor(this.isRecording ? '#F56C6C' : '#E8F3FF')
+            .borderRadius(22)
+            .gesture(
+              LongPressGesture({ repeat: false })
+                .onAction((_event: GestureEvent | undefined) => {
+                  void this.speechService.startVoiceRecording().catch((err: unknown) => {
+                    const message = err instanceof Error ? err.message : `${err}`;
+                    this.voiceStatusText = `开始录音失败: ${message}`;
+                  });
+                })
+                .onActionEnd(() => {
+                  void this.speechService.stopVoiceRecording().catch((err: unknown) => {
+                    const message = err instanceof Error ? err.message : `${err}`;
+                    this.voiceStatusText = `停止录音失败: ${message}`;
+                  });
+                })
+            )
+
           TextInput({ text: this.userInput, placeholder: '请输入您的问题...' })
             .height(44)
             .layoutWeight(1)
@@ -234,7 +292,7 @@ export struct AiDialogPage {
             })
 
           Button(this.isLoading ? '...' : '发送')
-            .width(44)
+            .width(52)
             .height(44)
             .backgroundColor(this.isLoading || !this.userInput.trim() ? '#C8C8CD' : '#165DFF')
             .borderRadius(22)
