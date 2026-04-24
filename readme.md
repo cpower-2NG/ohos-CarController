@@ -78,6 +78,11 @@
 	- 独立 TCP 客户端类
 	- 连接监听、消息监听、断开监听、错误监听
 	- 连接重试和超时控制
+- 已接入 AI 智能对话模块
+	- HTTP 调用星火 MaaS 接口
+	- 支持输入 API Key、接口地址和模型编号
+	- 支持对话结果解析与控制指令识别
+	- 支持车辆、车灯、座椅、氛围灯、导航等指令标签
 - 已补充网络权限
 	- `ohos.permission.INTERNET`
 - 已整理嵌入式代码目录
@@ -87,7 +92,6 @@
 ### 进行中
 
 - 车辆控制与嵌入式端真实联调
-- AI 对话页面实现
 - 语音识别页面实现
 - 地图导航页面实现
 
@@ -105,6 +109,8 @@
 - 页面入口在 `entry/src/main/ets/pages/Index.ets`
 - TCP 逻辑已拆分到 `entry/src/main/ets/models/TcpClient.ets`
 - 当前车控页使用 TCP 发送平衡车协议指令
+- AI 对话模块位于 `entry/src/main/ets/pages/AiDialogPage.ets`
+- AI HTTP 调用与指令解析位于 `entry/src/main/ets/models/AiChatService.ets`
 
 ### 嵌入式工程说明
 

@@ -1,4 +1,5 @@
 import { TcpClient } from '../models/TcpClient';
+import { AiDialogPage } from './AiDialogPage';
 
 type CarAction = 'forward' | 'backward' | 'left' | 'right' | 'stop';
 
@@ -435,10 +436,7 @@ struct Index {
       .tabBar(this.tabBarItem('🗺️', '地图', 1))
 
       TabContent() {
-        PlaceholderPage({
-          title: 'AI 对话',
-          description: '这里预留 AI 智能对话页面入口。'
-        })
+        AiDialogPage()
       }
       .tabBar(this.tabBarItem('🤖', 'AI', 2))
 
