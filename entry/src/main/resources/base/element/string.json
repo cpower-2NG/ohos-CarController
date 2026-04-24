@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "平衡车控制"
+    },
+    {
+      "name": "module_desc",
+      "value": "平衡车控制模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "平衡车控制入口能力"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "平衡车控制"
+    }
+  ]
+}
