@@ -42,8 +42,9 @@
 ### 3. 实现 AI 语音识别
 
 - 将语音转换为文字
-- 作为 AI 对话和控制指令的入口
-- 后续可扩展实时录音和错误重试
+- 按住语音按钮开始识别，松开后自动发送到 AI
+- 识别文本会回填到输入框并进入对话流
+- 已支持识别超时与失败重试（最多 3 次）
 
 ### 4. 实现导航管理
 
@@ -88,17 +89,20 @@
 - 已整理嵌入式代码目录
 	- `car_control_embedded/uart_tcp_re/`
 	- `car_control_embedded/uart_tcp_sta/`
+- 已接入 AI 语音识别模块
+	- `SpeechToTextService` 语音服务封装
+	- 聊天页支持按住说话、松开自动发送 AI
+	- 识别文本自动进入对话消息流
+	- 已补充麦克风权限 `ohos.permission.MICROPHONE`
 
 ### 进行中
 
 - 车辆控制与嵌入式端真实联调
-- 语音识别页面实现
 - 地图导航页面实现
 
 ### 待完成
 
 - 将 AI 回复结果映射为标准控制指令
-- 完成语音转文本后的控制联动
 - 补充更完整的界面主题和交互细节
 - 对接真实硬件并完成稳定性测试
 
@@ -111,6 +115,7 @@
 - 当前车控页使用 TCP 发送平衡车协议指令
 - AI 对话模块位于 `entry/src/main/ets/pages/AiDialogPage.ets`
 - AI HTTP 调用与指令解析位于 `entry/src/main/ets/models/AiChatService.ets`
+- 语音识别封装位于 `entry/src/main/ets/models/SpeechToTextService.ets`
 
 ### 嵌入式工程说明
 

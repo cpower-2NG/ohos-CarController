@@ -44,7 +44,7 @@ export struct AiDialogPage {
   @State isLoading: boolean = false;
   @State assistantReply: string = '这里显示大模型返回内容。';
   @State directiveText: string = '未识别到控制指令';
-  @State voiceStatusText: string = '长按麦克风说话';
+  @State voiceStatusText: string = '按住说话，松开发送识别';
   @State isRecording: boolean = false;
   @State chatBubbles: ChatBubble[] = [
     {
@@ -58,19 +58,31 @@ export struct AiDialogPage {
   private aiService: AiChatService = new AiChatService();
   private speechService: SpeechToTextService = new SpeechToTextService();
   private chatHistory: AiChatMessage[] = [];
+  private pendingVoiceAutoSend: boolean = false;
+  private voiceRecognizedText: string = '';
 
   aboutToAppear(): void {
     const hostContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.speechService.setListener({
       onText: (text: string) => {
         this.userInput = text;
+        this.voiceRecognizedText = text;
         this.voiceStatusText = '识别完成，可直接发送';
+
+        if (this.pendingVoiceAutoSend && !this.isRecording) {
+          void this.autoSendVoiceText();
+        }
       },
       onStateChange: (recording: boolean) => {
         this.isRecording = recording;
         this.voiceStatusText = recording ? '正在聆听，请继续说话' : '按住说话，松开发送识别';
+
+        if (!recording && this.pendingVoiceAutoSend && !!this.voiceRecognizedText.trim() && !this.isLoading) {
+          void this.autoSendVoiceText();
+        }
       },
       onError: (message: string) => {
+        this.pendingVoiceAutoSend = false;
         this.voiceStatusText = message;
       }
     });
@@ -105,8 +117,8 @@ export struct AiDialogPage {
     this.showQuickActions = false;
   }
 
-  private async sendPrompt(): Promise<void> {
-    const prompt = this.userInput.trim();
+  private async sendPrompt(overridePrompt?: string): Promise<void> {
+    const prompt = (overridePrompt ?? this.userInput).trim();
     if (!prompt) {
       this.directiveText = '请输入对话内容';
       return;
@@ -145,6 +157,25 @@ export struct AiDialogPage {
     } finally {
       this.isLoading = false;
     }
+  }
+
+  private async autoSendVoiceText(): Promise<void> {
+    if (this.isLoading) {
+      return;
+    }
+
+    const recognized = this.voiceRecognizedText.trim();
+    if (!recognized) {
+      this.pendingVoiceAutoSend = false;
+      this.voiceStatusText = '未识别到清晰语音，请重试';
+      return;
+    }
+
+    this.pendingVoiceAutoSend = false;
+    this.voiceStatusText = '识别完成，正在发送...';
+    await this.sendPrompt(recognized);
+    this.voiceRecognizedText = '';
+    this.voiceStatusText = '语音已发送，可继续按住说话';
   }
 
   private buildQuickActionButton(title: string, prompt: string) {
@@ -266,13 +297,17 @@ export struct AiDialogPage {
             .gesture(
               LongPressGesture({ repeat: false })
                 .onAction((_event: GestureEvent | undefined) => {
+                  this.pendingVoiceAutoSend = true;
+                  this.voiceRecognizedText = '';
                   void this.speechService.startVoiceRecording().catch((err: unknown) => {
+                    this.pendingVoiceAutoSend = false;
                     const message = err instanceof Error ? err.message : `${err}`;
                     this.voiceStatusText = `开始录音失败: ${message}`;
                   });
                 })
                 .onActionEnd(() => {
                   void this.speechService.stopVoiceRecording().catch((err: unknown) => {
+                    this.pendingVoiceAutoSend = false;
                     const message = err instanceof Error ? err.message : `${err}`;
                     this.voiceStatusText = `停止录音失败: ${message}`;
                   });
